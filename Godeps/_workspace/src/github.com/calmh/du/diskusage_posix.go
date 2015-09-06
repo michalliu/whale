@@ -1,4 +1,4 @@
-// +build !windows,!netbsd,!openbsd,!solaris
+// +build !windows,!netbsd,!openbsd,!solaris,!mipso32
 
 package du
 
