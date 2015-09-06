@@ -150,6 +150,10 @@ func openDB(s *session) (*DB, error) {
 
 	s.logf("db@open done T·%v", time.Since(start))
 
+	switch os.Getenv("GO_DISABLE_SETFINALIZER") {
+	case "1", "true", "y":
+		return db, nil
+	}
 	runtime.SetFinalizer(db, (*DB).Close)
 	return db, nil
 }

@@ -9,6 +9,7 @@ package leveldb
 import (
 	"container/list"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -86,6 +87,10 @@ func (db *DB) newSnapshot() *Snapshot {
 		elem: db.acquireSnapshot(),
 	}
 	atomic.AddInt32(&db.aliveSnaps, 1)
+	switch os.Getenv("GO_DISABLE_SETFINALIZER") {
+	case "1", "true", "y":
+		return snap
+	}
 	runtime.SetFinalizer(snap, (*Snapshot).Release)
 	return snap
 }
@@ -172,7 +177,11 @@ func (snap *Snapshot) Release() {
 
 	if !snap.released {
 		// Clear the finalizer.
-		runtime.SetFinalizer(snap, nil)
+		switch os.Getenv("GO_DISABLE_SETFINALIZER") {
+		case "1", "true", "y":
+		default:
+			runtime.SetFinalizer(snap, nil)
+		}
 
 		snap.released = true
 		snap.db.releaseSnapshot(snap.elem)

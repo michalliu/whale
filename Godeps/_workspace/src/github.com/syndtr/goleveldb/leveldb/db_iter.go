@@ -9,6 +9,7 @@ package leveldb
 import (
 	"errors"
 	"math/rand"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -77,6 +78,10 @@ func (db *DB) newIterator(seq uint64, slice *util.Range, ro *opt.ReadOptions) *d
 		value:  make([]byte, 0),
 	}
 	atomic.AddInt32(&db.aliveIters, 1)
+	switch os.Getenv("GO_DISABLE_SETFINALIZER") {
+	case "1", "true", "y":
+		return iter
+	}
 	runtime.SetFinalizer(iter, (*dbIter).Release)
 	return iter
 }
@@ -318,7 +323,11 @@ func (i *dbIter) Value() []byte {
 func (i *dbIter) Release() {
 	if i.dir != dirReleased {
 		// Clear the finalizer.
-		runtime.SetFinalizer(i, nil)
+		switch os.Getenv("GO_DISABLE_SETFINALIZER") {
+		case "1", "true", "y":
+		default:
+			runtime.SetFinalizer(i, nil)
+		}
 
 		if i.releaser != nil {
 			i.releaser.Release()

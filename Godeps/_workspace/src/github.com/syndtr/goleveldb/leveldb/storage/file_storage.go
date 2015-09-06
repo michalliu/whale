@@ -83,6 +83,10 @@ func OpenFile(path string) (Storage, error) {
 	}
 
 	fs := &fileStorage{path: path, flock: flock, logw: logw}
+	switch os.Getenv("GO_DISABLE_SETFINALIZER") {
+	case "1", "true", "y":
+		return fs, nil
+	}
 	runtime.SetFinalizer(fs, (*fileStorage).Close)
 	return fs, nil
 }
