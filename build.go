@@ -33,8 +33,10 @@ var (
 	versionRe = regexp.MustCompile(`-[0-9]{1,3}-g[0-9a-f]{5,10}`)
 	goarch    string
 	goos      string
+	gocmd     string
 	noupgrade bool
 	version   string
+	compiler  string
 	goVersion float64
 	race      bool
 )
@@ -56,10 +58,32 @@ func main() {
 	}
 	os.Setenv("PATH", fmt.Sprintf("%s%cbin%c%s", os.Getenv("GOPATH"), os.PathSeparator, os.PathListSeparator, os.Getenv("PATH")))
 
-	flag.StringVar(&goarch, "goarch", runtime.GOARCH, "GOARCH")
-	flag.StringVar(&goos, "goos", runtime.GOOS, "GOOS")
+	log.Println("PATH", os.Getenv("PATH"))
+
+	tipsGoArch := "target arch run syncthing"
+
+	if os.Getenv("GOARCH") == "" {
+		flag.StringVar(&goarch, "goarch", runtime.GOARCH, tipsGoArch)
+	} else {
+		flag.StringVar(&goarch, "goarch", os.Getenv("GOARCH"), tipsGoArch)
+	}
+
+	tipsGoOs := "target os run syncthing"
+
+	if os.Getenv("GOOS") == "" {
+		flag.StringVar(&goos, "goos", runtime.GOOS, tipsGoOs)
+	} else {
+		flag.StringVar(&goos, "goos", os.Getenv("GOOS"), tipsGoOs)
+	}
+
+	if os.Getenv("GOCMD") == "" {
+		flag.StringVar(&gocmd, "gocmd", "go", "GOCMD")
+	} else {
+		flag.StringVar(&gocmd, "gocmd", os.Getenv("GOCMD"), "GOCMD")
+	}
 	flag.BoolVar(&noupgrade, "no-upgrade", noupgrade, "Disable upgrade functionality")
 	flag.StringVar(&version, "version", getVersion(), "Set compiled in version string")
+	flag.StringVar(&compiler, "compiler", "gc", "compiler go will use gccgo or gc, default gc")
 	flag.BoolVar(&race, "race", race, "Use race detector")
 	flag.Parse()
 
@@ -71,16 +95,24 @@ func main() {
 	}
 
 	goVersion, _ = checkRequiredGoVersion()
+	log.Println("goVersion", goVersion)
 
 	if flag.NArg() == 0 {
 		var tags []string
 		if noupgrade {
 			tags = []string{"noupgrade"}
 		}
+		install("./lib/...", tags)
+		install("github.com/juju/...", tags)
+		install("github.com/vitrun/...", tags)
 		install("./cmd/...", tags)
-
-		vet("./cmd/syncthing")
-		vet("./lib/...")
+		switch goarch {
+		case "386", "amd64", "arm", "mipso32":
+			vet("./cmd/syncthing")
+			vet("./lib/...")
+		default:
+			log.Printf("vet is not supported for goarch %q; disabled!", goarch)
+		}
 		lint("./cmd/syncthing")
 		lint("./lib/...")
 		return
@@ -196,7 +228,12 @@ func bench(pkg string) {
 
 func install(pkg string, tags []string) {
 	os.Setenv("GOBIN", "./bin")
-	args := []string{"install", "-v", "-ldflags", ldflags()}
+	args := []string{}
+	if compiler == "gc" {
+		args = []string{"install", "-v", "-ldflags", ldflags()}
+	} else if compiler == "gccgo" {
+		args = []string{"install", "-v", "-compiler", compiler, "-gccgoflags", "'-static-libgo'"}
+	}
 	if len(tags) > 0 {
 		args = append(args, "-tags", strings.Join(tags, ","))
 	}
@@ -384,7 +421,9 @@ func listFiles(dir string) []string {
 }
 
 func setBuildEnv() {
+	log.Println("GOOS", goos)
 	os.Setenv("GOOS", goos)
+	log.Println("GOARCH", goarch)
 	os.Setenv("GOARCH", goarch)
 	wd, err := os.Getwd()
 	if err != nil {
@@ -392,7 +431,7 @@ func setBuildEnv() {
 		log.Println("Build might not work as expected")
 	}
 	os.Setenv("GOPATH", fmt.Sprintf("%s%c%s", filepath.Join(wd, "Godeps", "_workspace"), os.PathListSeparator, os.Getenv("GOPATH")))
-	log.Println("GOPATH=" + os.Getenv("GOPATH"))
+	log.Println("GOPATH", os.Getenv("GOPATH"))
 }
 
 func assets() {
@@ -539,6 +578,9 @@ func archiveName() string {
 }
 
 func run(cmd string, args ...string) []byte {
+	if cmd == "go" {
+		cmd = gocmd
+	}
 	bs, err := runError(cmd, args...)
 	if err != nil {
 		log.Println(cmd, strings.Join(args, " "))
@@ -549,12 +591,19 @@ func run(cmd string, args ...string) []byte {
 }
 
 func runError(cmd string, args ...string) ([]byte, error) {
+	if cmd == "go" {
+		cmd = gocmd
+	}
+	log.Println(cmd, strings.Join(args, " "))
 	ecmd := exec.Command(cmd, args...)
 	bs, err := ecmd.CombinedOutput()
 	return bytes.TrimSpace(bs), err
 }
 
 func runPrint(cmd string, args ...string) {
+	if cmd == "go" {
+		cmd = gocmd
+	}
 	log.Println(cmd, strings.Join(args, " "))
 	ecmd := exec.Command(cmd, args...)
 	ecmd.Stdout = os.Stdout
@@ -566,6 +615,9 @@ func runPrint(cmd string, args ...string) {
 }
 
 func runPipe(file, cmd string, args ...string) {
+	if cmd == "go" {
+		cmd = gocmd
+	}
 	log.Println(cmd, strings.Join(args, " "), ">", file)
 	fd, err := os.Create(file)
 	if err != nil {
