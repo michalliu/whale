@@ -14,3 +14,7 @@ coverage.xml
 syncthing.sig
 RELEASE
 deb
+build
+cscope.files
+tags
+*_defs.go
